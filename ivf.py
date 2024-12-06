@@ -2,12 +2,13 @@ import numpy as np      # Maths operations
 import pickle           # Serializations of data
 from sklearn import preprocessing
 from sklearn.cluster import KMeans, MiniBatchKMeans
+from scipy.cluster.vq import whiten, kmeans, vq, kmeans2
 import os
 import gc
 import math
 
 class ivf:
-    def __init__(self, clusters: int = 100, batches: int = 100000) -> None:
+    def __init__(self, clusters: int = 1000, batches: int = 100000) -> None:
         '''
         Constructor of IVF
         '''
@@ -92,22 +93,18 @@ class ivf:
         else:
             # turn data to array as i have no need for keys
             new_data = np.array(list(data))
-            cluster_n = math.ceil(math.sqrt(len(new_data)))
             if len(new_data) > 1000000:
-                kmeans = MiniBatchKMeans(cluster_n, random_state=0, batch_size=self.batch_size,max_iter=10,init_size="auto")
+                kmeans = MiniBatchKMeans(self.cluster_num, random_state=0, batch_size=self.batch_size,max_iter=10,n_init="auto")
                 for i in range(0,len(new_data),self.batch_size):
-                    kmeans.partial_fit(new_data[i:i+self.batch_size])
+                    kmeans.partial_fit(preprocessing.normalize(new_data[i:i+self.batch_size]))
                     indices = kmeans.labels_
                     for j,k in enumerate(indices):
-                        index[k][j] = new_data[j]
+                        index[k][j+i] = new_data[j+i]
                 centroids = kmeans.cluster_centers_
             else:
-                kmeans = KMeans(cluster_n)
-                kmeans.fit(new_data)
-                indices = kmeans.labels_
-                for i,k in enumerate(indices):
-                    index[k][i] = new_data[i]
-                centroids = kmeans.cluster_centers_
+                centroids,cluster_indices = kmeans2(preprocessing.normalize(new_data), self.cluster_num)
+                for i,key in enumerate(cluster_indices):
+                    index[key][i] = data[i]
             del new_data
             del data
         for i in range(self.cluster_num): #make files for each cluster
@@ -120,7 +117,8 @@ class ivf:
         del index
         del centroids
         gc.collect()
-    
+        print('Finished Indexing')
+        
     # search to find nearest index
     def find_nearest(self, path, query, centroids, no_of_matches, no_of_centroids):
         '''

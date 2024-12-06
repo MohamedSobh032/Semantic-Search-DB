@@ -63,9 +63,9 @@ class VecDB:
     def retrieve(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
         centroids = self.ivf.load_file('./centroids.pkl')
         app_data_size = math.ceil(math.pow(len(centroids),2))
-        no_of_centroids = 30
-        if app_data_size > 1000000:
-            no_of_centroids = 30 + app_data_size // 1000000
+        no_of_centroids = 1
+        # if app_data_size > 1000000:
+        #     no_of_centroids = 30 + app_data_size // 1000000
         results = self.ivf.find_nearest('.', query, centroids, top_k, no_of_centroids)
         return results
     
