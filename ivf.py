@@ -16,8 +16,6 @@ class ivf:
         self.kmeans = KMeans(n_clusters=clusters)
         self.inverted_index = {}
 
-    ###### FILE OPERATIONS ######
-
     # READ FILE WITH INDEX
     def load_batch(self, index: int):
         '''
@@ -113,7 +111,6 @@ class ivf:
             del new_data
             del data
         for i in range(self.cluster_num): #make files for each cluster
-            self.inverted_index[i] = index[i]
             file_name = path + f'/data_{i}.pkl'
             with open(file_name, 'wb') as file:
                 pickle.dump(index[i], file)
@@ -125,15 +122,23 @@ class ivf:
         gc.collect()
     
     # search
-    def find_nearest(self, query: np.ndarray, top: int) -> list:
+    def find_nearest(self, path, query, centroids, no_of_matches, no_of_centroids):
         '''
         Finds the nearest neighbour
         param query: query vector
         param top: number of top results
         '''
-        label = self.kmeans.predict(query.reshape(1, -1))
-        result = []
-        for i in self.inverted_index[label]:
-            result.append((i, self.get_similarity(query, self.kmeans.cluster_centers_[label])))
-        result.sort(key=lambda x: x[1])
-        return result[:top]
+        # get cosine similarities of all neighbours of the cluster
+        sims = self.get_similarity(np.array(query), centroids)[0]
+        # get nearest centroids
+        nearest_index = np.argsort(sims)[:no_of_centroids]
+        # Initialize an empty list to store candidate neighbors along with their similarities
+        candidates = []
+        # for each centroid
+        for id in nearest_index:
+            points = self.load_file(f'{path}/cluster_{id}.pkl')
+            for point in points:
+                candidates.append(point, points[point], self.get_similarity(points[point], np.array(query)))
+        # SORT BY SIMILARITY
+        candidates.sort(key=lambda x: x[2])
+        return [x[0] for x in candidates[:no_of_matches]]
