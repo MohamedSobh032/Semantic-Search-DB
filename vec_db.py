@@ -1,6 +1,8 @@
 from typing import Dict, List, Annotated
+from ivf import ivf
 import numpy as np
 import os
+import math
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -10,6 +12,7 @@ class VecDB:
     def __init__(self, database_file_path = "saved_db.dat", index_file_path = "index.dat", new_db = True, db_size = None) -> None:
         self.db_path = database_file_path
         self.index_path = index_file_path
+        self.ivf = ivf()
         if new_db:
             if db_size is None:
                 raise ValueError("You need to provide the size of the database")
@@ -22,7 +25,7 @@ class VecDB:
         rng = np.random.default_rng(DB_SEED_NUMBER)
         vectors = rng.random((size, DIMENSION), dtype=np.float32)
         self._write_vectors_to_file(vectors)
-        self._build_index()
+        self._build_index('.', vectors)
 
     def _write_vectors_to_file(self, vectors: np.ndarray) -> None:
         mmap_vectors = np.memmap(self.db_path, dtype=np.float32, mode='w+', shape=vectors.shape)
@@ -40,7 +43,7 @@ class VecDB:
         mmap_vectors[num_old_records:] = rows
         mmap_vectors.flush()
         #TODO: might change to call insert in the index, if you need
-        self._build_index()
+        self._build_index('.', rows)
 
     def get_one_row(self, row_num: int) -> np.ndarray:
         # This function is only load one row in memory
@@ -58,16 +61,13 @@ class VecDB:
         return np.array(vectors)
     
     def retrieve(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
-        scores = []
-        num_records = self._get_num_records()
-        # here we assume that the row number is the ID of each vector
-        for row_num in range(num_records):
-            vector = self.get_one_row(row_num)
-            score = self._cal_score(query, vector)
-            scores.append((score, row_num))
-        # here we assume that if two rows have the same score, return the lowest ID
-        scores = sorted(scores, reverse=True)[:top_k]
-        return [s[1] for s in scores]
+        centroids = self.ivf.load_file('./centroids.pkl')
+        app_data_size = math.ceil(math.pow(len(centroids),2))
+        no_of_centroids = 30
+        if app_data_size > 1000000:
+            no_of_centroids = 30 + app_data_size // 1000000
+        results = self.ivf.find_nearest('.', query, centroids, top_k, no_of_centroids)
+        return results
     
     def _cal_score(self, vec1, vec2):
         dot_product = np.dot(vec1, vec2)
@@ -76,8 +76,6 @@ class VecDB:
         cosine_similarity = dot_product / (norm_vec1 * norm_vec2)
         return cosine_similarity
 
-    def _build_index(self):
+    def _build_index(self, path, data = None):
         # Placeholder for index building logic
-        pass
-
-
+        self.ivf.build_index(path, data)

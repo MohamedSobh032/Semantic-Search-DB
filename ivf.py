@@ -65,7 +65,7 @@ class ivf:
         param v1: vector 1
         param v2: vector 2
         '''
-        return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+        return np.dot(v1, v2.T) / (np.linalg.norm(v1) * np.linalg.norm(v2))
     
     # build index
     def build_index(self, path: str, data = None) -> None:
@@ -73,7 +73,7 @@ class ivf:
         Builds the index of the data
         param data: data to build the index
         '''
-        index = [{} for i in range(self.clusters)]
+        index = [{} for i in range(self.cluster_num)]
         if data is None:
             # cluster the data into batches
             kmeans = MiniBatchKMeans(self.cluster_num, random_state=0, batch_size=self.batch_size, max_iter=10, init_size='auto')
@@ -91,7 +91,7 @@ class ivf:
             centroids = kmeans.cluster_centers_
         else:
             # turn data to array as i have no need for keys
-            new_data = np.array(list(data.values()))
+            new_data = np.array(list(data))
             cluster_n = math.ceil(math.sqrt(len(new_data)))
             if len(new_data) > 1000000:
                 kmeans = MiniBatchKMeans(cluster_n, random_state=0, batch_size=self.batch_size,max_iter=10,init_size="auto")
@@ -99,7 +99,7 @@ class ivf:
                     kmeans.partial_fit(new_data[i:i+self.batch_size])
                     indices = kmeans.labels_
                     for j,k in enumerate(indices):
-                        index[k][j+1] = new_data[j+1]
+                        index[k][j] = new_data[j]
                 centroids = kmeans.cluster_centers_
             else:
                 kmeans = KMeans(cluster_n)
@@ -121,7 +121,7 @@ class ivf:
         del centroids
         gc.collect()
     
-    # search
+    # search to find nearest index
     def find_nearest(self, path, query, centroids, no_of_matches, no_of_centroids):
         '''
         Finds the nearest neighbour
@@ -129,16 +129,19 @@ class ivf:
         param top: number of top results
         '''
         # get cosine similarities of all neighbours of the cluster
-        sims = self.get_similarity(np.array(query), centroids)[0]
+        sims = self.get_similarity(query, centroids)[0]
         # get nearest centroids
         nearest_index = np.argsort(sims)[:no_of_centroids]
         # Initialize an empty list to store candidate neighbors along with their similarities
         candidates = []
         # for each centroid
         for id in nearest_index:
-            points = self.load_file(f'{path}/cluster_{id}.pkl')
+            points = self.load_file(f'{path}/data_{id}.pkl')
+            #print(points)
+            #print('==================================================================================================================================================')
             for point in points:
-                candidates.append(point, points[point], self.get_similarity(points[point], np.array(query)))
+                sim = self.get_similarity(points[point], np.array(query))
+                candidates.append((point, points[point], sim))
         # SORT BY SIMILARITY
-        candidates.sort(key=lambda x: x[2])
+        candidates.sort(key = lambda x: x[2])
         return [x[0] for x in candidates[:no_of_matches]]
