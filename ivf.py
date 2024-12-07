@@ -120,26 +120,48 @@ class ivf:
         print('Finished Indexing')
         
     # search to find nearest index
-    def find_nearest(self, path, query, centroids, no_of_matches, no_of_centroids):
+    def find_nearest(self, path: str, query: np.ndarray, centroids: np.ndarray, no_of_matches: int, no_of_centroids: int) -> list[int]:
         '''
-        Finds the nearest neighbour
-        param query: query vector
-        param top: number of top results
+        Finds the nearest neighbors for a query vector
         '''
-        # get cosine similarities of all neighbours of the cluster
-        sims = self.get_similarity(query, centroids)[0]
-        # get nearest centroids
-        nearest_index = np.argsort(sims)[:no_of_centroids]
-        # Initialize an empty list to store candidate neighbors along with their similarities
+        # Convert query to numpy and normalize 
+        query = np.array(query).reshape(1, -1)
+        query = preprocessing.normalize(query)
+        
+        # Get similarities to centroids
+        sims = self.get_similarity(query, centroids)
+        sims = sims.flatten() # Ensure 1D array
+        
+        # Get indices of nearest centroids (highest similarity)
+        nearest_index = np.argsort(sims)[-no_of_centroids:][::-1]
+        
+        # Store candidates and their similarities
         candidates = []
-        # for each centroid
-        for id in nearest_index:
-            points = self.load_file(f'{path}/data_{id}.pkl')
-            #print(points)
-            #print('==================================================================================================================================================')
-            for point in points:
-                sim = self.get_similarity(points[point], np.array(query))
-                candidates.append((point, points[point], sim))
-        # SORT BY SIMILARITY
-        candidates.sort(key = lambda x: x[2])
+        
+        # Search in nearest clusters
+        for cluster_id in nearest_index:
+            # Convert cluster_id to integer scalar
+            cluster_id_int = int(cluster_id)
+            points = self.load_file(f'{path}/data_{cluster_id_int}.pkl')
+            
+            if points:
+                for point_idx, point_vec in points.items():
+                    sim = self.get_similarity(point_vec, query)
+                    candidates.append((point_idx, point_vec, float(sim)))
+                
+                # Clear memory
+                del points
+                gc.collect()
+        
+        # Sort by similarity (descending)
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        
+        # Return top matches
         return [x[0] for x in candidates[:no_of_matches]]
+    
+
+#TO DO: 
+# 1. Add Product Quantization
+# 2. Make Index one file
+# 3. Find clusters sweet spot
+# 4. Run on Kaggle
