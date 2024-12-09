@@ -61,12 +61,9 @@ class VecDB:
         return np.array(vectors)
     
     def retrieve(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
-        centroids = self.ivf.load_file('./centroids.pkl')
-        app_data_size = math.ceil(math.pow(len(centroids),2))
-        no_of_centroids = 16
-        # if app_data_size > 1000000:
-        #     no_of_centroids = 30 + app_data_size // 1000000
-        results = self.ivf.find_nearest('.', query, centroids, top_k, no_of_centroids)
+        # Remove centroids loading since it's stored in index
+        no_of_centroids = 48  # Can be adjusted based on dataset size
+        results = self.ivf.find_nearest('.', query, top_k, no_of_centroids)
         return results
     
     def _cal_score(self, vec1, vec2):
@@ -77,5 +74,6 @@ class VecDB:
         return cosine_similarity
 
     def _build_index(self, path, data = None):
-        # Placeholder for index building logic
+        # Create directory if it doesn't exist
+        os.makedirs(path, exist_ok=True)
         self.ivf.build_index(path, data)

@@ -1,5 +1,6 @@
 import numpy as np      # Maths operations
 import pickle           # Serializations of data
+from productquantization import ProductQuantizer
 from sklearn import preprocessing
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from scipy.cluster.vq import whiten, kmeans, vq, kmeans2
@@ -8,25 +9,14 @@ import gc
 import math
 
 class ivf:
-    def __init__(self, clusters: int = 1000, batches: int = 100000) -> None:
-        '''
-        Constructor of IVF
-        '''
+    def __init__(self, clusters: int = 8192, batches: int = 500000, n_subvectors: int = 16, n_clusters_pq: int = 256) -> None:
         self.batch_size = batches
         self.cluster_num = clusters
-        self.kmeans = KMeans(n_clusters=clusters)
-        self.inverted_index = {}
-
-    # READ FILE WITH INDEX
-    def load_batch(self, index: int):
-        '''
-        reads data file with index as binary
-        param index: which data file to read
-        '''
-        file_name = f'data/data_{index}.pkl'
-        with open(file_name, 'rb') as file:
-            return pickle.load(file)
-        return None
+        self.pq = ProductQuantizer(n_subvectors, n_clusters_pq)
+        # Single index structure:
+        # {cluster_id: {"codes": encoded_vectors, "ids": original_ids}}
+        self.index = {}
+        self.centroids = None
     
     # READ FILE WITH FILENAME
     def load_file(self, file_name: str):
@@ -70,96 +60,72 @@ class ivf:
     
     # build index
     def build_index(self, path: str, data = None) -> None:
-        '''
-        Builds the index of the data
-        param data: data to build the index
-        '''
-        index = [{} for i in range(self.cluster_num)]
-        if data is None:
-            # cluster the data into batches
-            kmeans = MiniBatchKMeans(self.cluster_num, random_state=0, batch_size=self.batch_size, max_iter=10, init_size='auto')
-            idx = 0
-            while batch := self.load_batch(index=idx):
-                idx += 1
-                np_batch = np.array(list(batch.values()))
-                for i in range(0, len(np_batch), self.batch_size):
-                    kmeans.partial_fit(preprocessing.normalize(np_batch[i : i + self.batch_size]))
-                    for j, k in enumerate(kmeans.labels_):
-                        index[k][idx * len(np_batch) + j + i] = batch[idx * len(np_batch) + j + i]
-                del batch
-                del np_batch
-                gc.collect()
-            centroids = kmeans.cluster_centers_
-        else:
-            # turn data to array as i have no need for keys
-            new_data = np.array(list(data))
-            if len(new_data) > 1000000:
-                kmeans = MiniBatchKMeans(self.cluster_num, random_state=0, batch_size=self.batch_size,max_iter=10,n_init="auto")
-                for i in range(0,len(new_data),self.batch_size):
-                    kmeans.partial_fit(preprocessing.normalize(new_data[i:i+self.batch_size]))
-                    indices = kmeans.labels_
-                    for j,k in enumerate(indices):
-                        index[k][j+i] = new_data[j+i]
-                centroids = kmeans.cluster_centers_
-            else:
-                centroids,cluster_indices = kmeans2(preprocessing.normalize(new_data), self.cluster_num)
-                for i,key in enumerate(cluster_indices):
-                    index[key][i] = data[i]
-            del new_data
-            del data
-        for i in range(self.cluster_num): #make files for each cluster
-            file_name = path + f'/data_{i}.pkl'
-            with open(file_name, 'wb') as file:
-                pickle.dump(index[i], file)
-        centroids_file = path + '/centroids.pkl'
-        with open(centroids_file, 'wb') as file:
-            pickle.dump(centroids, file)
-        del index
-        del centroids
-        gc.collect()
-        print('Finished Indexing')
+    # First pass: Cluster assignment
+        vectors = data
+        ids = list(range(len(vectors)))
+
+        # Normalize and cluster
+        normalized = preprocessing.normalize(vectors)
+        kmeans = MiniBatchKMeans(self.cluster_num, batch_size=self.batch_size)
+        cluster_labels = kmeans.fit_predict(normalized)
+        self.centroids = kmeans.cluster_centers_
+
+        # Initialize clusters
+        for i in range(self.cluster_num):
+            self.index[i] = {"codes": [], "ids": []}
+
+        # Second pass: PQ encoding per cluster
+        for cluster_id in range(self.cluster_num):
+            cluster_mask = cluster_labels == cluster_id
+            cluster_vectors = vectors[cluster_mask]
+            cluster_ids = np.array(ids)[cluster_mask]
+            
+            if len(cluster_vectors) > 0:
+                self.pq.fit(cluster_vectors)
+                codes = self.pq.encode(cluster_vectors)
+                self.index[cluster_id]["codes"] = codes
+                self.index[cluster_id]["ids"] = cluster_ids
+
+        # Save single index file
+        with open(os.path.join(path, 'ivf_index.pkl'), 'wb') as f:
+            pickle.dump({
+                'index': self.index,
+                'centroids': self.centroids,
+                'pq_params': {
+                    'M': self.pq.M,
+                    'K': self.pq.K,
+                    'original_d': self.pq.original_d
+                }
+            }, f)
+        print("Finished Indexing.")
         
     # search to find nearest index
-    def find_nearest(self, path: str, query: np.ndarray, centroids: np.ndarray, no_of_matches: int, no_of_centroids: int) -> list[int]:
-        '''
-        Finds the nearest neighbors for a query vector
-        '''
-        # Convert query to numpy and normalize 
-        query = np.array(query).reshape(1, -1)
-        query = preprocessing.normalize(query)
+    def find_nearest(self, path: str, query: np.ndarray, no_of_matches: int, no_of_centroids: int) -> list[int]:
+        # Load index if not in memory
+        if not hasattr(self, 'index') or self.index is None:
+            with open(os.path.join(path, 'ivf_index.pkl'), 'rb') as f:
+                data = pickle.load(f)
+                self.index = data['index']
+                self.centroids = data['centroids']
+
+        query = preprocessing.normalize(query.reshape(1, -1))
+        sims = self.get_similarity(query, self.centroids)
+        nearest_clusters = np.argsort(sims.flatten())[-no_of_centroids:][::-1]
         
-        # Get similarities to centroids
-        sims = self.get_similarity(query, centroids)
-        sims = sims.flatten() # Ensure 1D array
-        
-        # Get indices of nearest centroids (highest similarity)
-        nearest_index = np.argsort(sims)[-no_of_centroids:][::-1]
-        
-        # Store candidates and their similarities
         candidates = []
-        
-        # Search in nearest clusters
-        for cluster_id in nearest_index:
-            # Convert cluster_id to integer scalar
-            cluster_id_int = int(cluster_id)
-            points = self.load_file(f'{path}/data_{cluster_id_int}.pkl')
+        for cluster_id in nearest_clusters:
+            codes = self.index[cluster_id]["codes"]
+            ids = self.index[cluster_id]["ids"]
             
-            if points:
-                for point_idx, point_vec in points.items():
-                    sim = self.get_similarity(point_vec, query)
-                    candidates.append((point_idx, point_vec, float(sim)))
-                
-                # Clear memory
-                del points
-                gc.collect()
-        
-        # Sort by similarity (descending)
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        
-        # Return top matches
+            if len(codes) > 0:
+                vectors = self.pq.decode(codes)
+                sims = self.get_similarity(query, vectors)
+                for idx, sim in zip(ids, sims.flatten()):
+                    candidates.append((idx, float(sim)))
+
+        candidates.sort(key=lambda x: x[1], reverse=True)
         return [x[0] for x in candidates[:no_of_matches]]
     
-
 #TO DO: 
 # 1. Add Product Quantization
 # 2. Make Index one file
