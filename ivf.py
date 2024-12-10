@@ -1,167 +1,137 @@
-import numpy as np      # Maths operations
-import pickle           # Serializations of data
-from sklearn import preprocessing
-from sklearn.cluster import KMeans, MiniBatchKMeans
-from scipy.cluster.vq import whiten, kmeans, vq, kmeans2
+# Modified ivf.py
+import numpy as np
+import pickle
 import os
-import gc
+from sklearn import preprocessing
+import nanopq
 import math
 
+from sklearn.cluster import MiniBatchKMeans
+
 class ivf:
-    def __init__(self, clusters: int = 1000, batches: int = 100000) -> None:
-        '''
-        Constructor of IVF
-        '''
+    def __init__(self, clusters: int = 10000, batches: int = 100000, n_subvectors: int = 8):
         self.batch_size = batches
         self.cluster_num = clusters
-        self.kmeans = KMeans(n_clusters=clusters)
-        self.inverted_index = {}
+        # Calculate optimal M (number of subvectors) to handle any dimension
+        self.M = n_subvectors
+        self.index = None
+        self.centroids = None
+        
+    def _pad_vectors(self, vectors: np.ndarray) -> tuple[np.ndarray, int]:
+        """Pad vectors to make dimension divisible by M"""
+        d = vectors.shape[1]
+        if d % self.M != 0:
+            pad_size = self.M - (d % self.M)
+            padded = np.pad(vectors, ((0, 0), (0, pad_size)), 'constant')
+            return padded, pad_size
+        return vectors, 0
 
-    # READ FILE WITH INDEX
-    def load_batch(self, index: int):
-        '''
-        reads data file with index as binary
-        param index: which data file to read
-        '''
-        file_name = f'data/data_{index}.pkl'
-        with open(file_name, 'rb') as file:
-            return pickle.load(file)
-        return None
-    
-    # READ FILE WITH FILENAME
-    def load_file(self, file_name: str):
-        '''
-        reads data file as binary
-        param file_name: which data file to read
-        '''
-        with open(file_name, 'rb') as file:
-            return pickle.load(file)
-        return None
-
-    # INSERT
-    def append_to_file(self, filename: str, idx: int, data: np.ndarray) -> None:
-        '''
-        inserts new data to a file
-        param filename: filename
-        param data: vector to be inserted
-        '''
-        with open(filename, 'a', newline = '') as file:
-            arr = ','.join(map(str, data))
-            file.write(f'{idx},{arr}\n')
-    
-    # DELETE ALL DATA INSIDE A DIRECTORY
-    def delete_file_data(self, dir_path: str):
-        '''
-        Deletes all data files inside a directory
-        param dir_path: path to the directory to delete
-        '''
-        for file in os.listdir(dir_path):
-            if file.endswith('.pkl'):
-                os.remove(os.path.join(dir_path, file))
-    
-    # Cosine Similarity
-    def get_similarity(self, v1: np.ndarray, v2: np.ndarray) -> float:
-        '''
-        Gets the angle between two vector
-        param v1: vector 1
-        param v2: vector 2
-        '''
-        return np.dot(v1, v2.T) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-    
-    # build index
     def build_index(self, path: str, data = None) -> None:
-        '''
-        Builds the index of the data
-        param data: data to build the index
-        '''
-        index = [{} for i in range(self.cluster_num)]
         if data is None:
-            # cluster the data into batches
-            kmeans = MiniBatchKMeans(self.cluster_num, random_state=0, batch_size=self.batch_size, max_iter=10, init_size='auto')
+            vectors = []
+            ids = []
             idx = 0
             while batch := self.load_batch(index=idx):
+                vectors.extend(list(batch.values()))
+                ids.extend(list(batch.keys()))
                 idx += 1
-                np_batch = np.array(list(batch.values()))
-                for i in range(0, len(np_batch), self.batch_size):
-                    kmeans.partial_fit(preprocessing.normalize(np_batch[i : i + self.batch_size]))
-                    for j, k in enumerate(kmeans.labels_):
-                        index[k][idx * len(np_batch) + j + i] = batch[idx * len(np_batch) + j + i]
-                del batch
-                del np_batch
-                gc.collect()
-            centroids = kmeans.cluster_centers_
+            vectors = np.array(vectors, dtype=np.float32)
         else:
-            # turn data to array as i have no need for keys
-            new_data = np.array(list(data))
-            if len(new_data) > 1000000:
-                kmeans = MiniBatchKMeans(self.cluster_num, random_state=0, batch_size=self.batch_size,max_iter=10,n_init="auto")
-                for i in range(0,len(new_data),self.batch_size):
-                    kmeans.partial_fit(preprocessing.normalize(new_data[i:i+self.batch_size]))
-                    indices = kmeans.labels_
-                    for j,k in enumerate(indices):
-                        index[k][j+i] = new_data[j+i]
-                centroids = kmeans.cluster_centers_
-            else:
-                centroids,cluster_indices = kmeans2(preprocessing.normalize(new_data), self.cluster_num)
-                for i,key in enumerate(cluster_indices):
-                    index[key][i] = data[i]
-            del new_data
-            del data
-        for i in range(self.cluster_num): #make files for each cluster
-            file_name = path + f'/data_{i}.pkl'
-            with open(file_name, 'wb') as file:
-                pickle.dump(index[i], file)
-        centroids_file = path + '/centroids.pkl'
-        with open(centroids_file, 'wb') as file:
-            pickle.dump(centroids, file)
-        del index
-        del centroids
-        gc.collect()
-        print('Finished Indexing')
-        
-    # search to find nearest index
-    def find_nearest(self, path: str, query: np.ndarray, centroids: np.ndarray, no_of_matches: int, no_of_centroids: int) -> list[int]:
-        '''
-        Finds the nearest neighbors for a query vector
-        '''
-        # Convert query to numpy and normalize 
-        query = np.array(query).reshape(1, -1)
-        query = preprocessing.normalize(query)
-        
-        # Get similarities to centroids
-        sims = self.get_similarity(query, centroids)
-        sims = sims.flatten() # Ensure 1D array
-        
-        # Get indices of nearest centroids (highest similarity)
-        nearest_index = np.argsort(sims)[-no_of_centroids:][::-1]
-        
-        # Store candidates and their similarities
-        candidates = []
-        
-        # Search in nearest clusters
-        for cluster_id in nearest_index:
-            # Convert cluster_id to integer scalar
-            cluster_id_int = int(cluster_id)
-            points = self.load_file(f'{path}/data_{cluster_id_int}.pkl')
-            
-            if points:
-                for point_idx, point_vec in points.items():
-                    sim = self.get_similarity(point_vec, query)
-                    candidates.append((point_idx, point_vec, float(sim)))
-                
-                # Clear memory
-                del points
-                gc.collect()
-        
-        # Sort by similarity (descending)
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        
-        # Return top matches
-        return [x[0] for x in candidates[:no_of_matches]]
-    
+            vectors = np.array(data, dtype=np.float32)
+            ids = list(range(len(vectors)))
 
-#TO DO: 
-# 1. Add Product Quantization
-# 2. Make Index one file
-# 3. Find clusters sweet spot
-# 4. Run on Kaggle
+        # Pad vectors if needed
+        padded_vectors, pad_size = self._pad_vectors(vectors)
+        
+        # Initialize and train OPQ
+        self.opq = nanopq.OPQ(M=self.M, Ks=256)
+        self.opq.fit(vecs=padded_vectors, pq_iter=20, rotation_iter=10)
+
+        # Coarse clustering
+        normalized = preprocessing.normalize(vectors)
+        kmeans = MiniBatchKMeans(self.cluster_num, batch_size=self.batch_size)
+        cluster_labels = kmeans.fit_predict(normalized)
+        self.centroids = kmeans.cluster_centers_
+
+        # Build single index file
+        self.index = {
+        'metadata': {
+            'n_clusters': self.cluster_num,
+            'n_subvectors': self.M,
+            'dimension': vectors.shape[1],
+            'pad_size': pad_size
+        },
+        'centroids': self.centroids,
+        'opq_params': {
+            'codewords': self.opq.codewords,
+            'rotation_matrix': self.opq.R  # Changed to use R
+        },
+        'clusters': {}
+        }
+
+        # Encode vectors per cluster
+        for cluster_id in range(self.cluster_num):
+            mask = cluster_labels == cluster_id
+            if np.any(mask):
+                cluster_vectors = padded_vectors[mask]
+                cluster_ids = np.array(ids)[mask]
+                codes = self.opq.encode(cluster_vectors)
+                self.index['clusters'][cluster_id] = {
+                    'codes': codes,
+                    'ids': cluster_ids
+                }
+
+        # Save single index file
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, 'ivf_index.pkl'), 'wb') as f:
+            pickle.dump(self.index, f)
+    # Add to ivf class in ivf.py
+    def get_similarity(self, query: np.ndarray, vectors: np.ndarray) -> np.ndarray:
+        """
+        Calculate cosine similarity between query and vectors
+        Args:
+            query: normalized query vector (1, d)
+            vectors: normalized vectors to compare against (n, d)
+        Returns:
+            similarities: cosine similarities (n,)
+        """
+        return np.dot(query, vectors.T)
+
+    def find_nearest(self, path: str, query: np.ndarray, no_of_matches: int, no_of_centroids: int) -> list[int]:
+        # Load index if needed
+        if self.index is None:
+            with open(os.path.join(path, 'ivf_index.pkl'), 'rb') as f:
+                self.index = pickle.load(f)
+                self.centroids = self.index['centroids']
+                # Reconstruct OPQ
+                self.opq = nanopq.OPQ(M=self.index['metadata']['n_subvectors'])
+                self.opq.codewords = self.index['opq_params']['codewords']
+                self.opq.R = self.index['opq_params']['rotation_matrix']
+        
+        # First normalize original query (keep as 2D for similarity computation)
+        query_2d = query.reshape(1, -1).astype(np.float32)
+        query_normalized = preprocessing.normalize(query_2d)
+        
+        # Find nearest centroids using original dimensions
+        sims = self.get_similarity(query_normalized, self.centroids)
+        nearest_clusters = np.argsort(sims.flatten())[-no_of_centroids:][::-1]
+
+        # Convert to 1D and pad query for PQ distance computation
+        query_1d = query_2d.flatten()  # Convert to 1D for nanopq
+        if self.index['metadata']['pad_size'] > 0:
+            query_1d = np.pad(query_1d, (0, self.index['metadata']['pad_size']), 'constant')
+
+        # Search in selected clusters using 1D query
+        candidates = []
+        dt = self.opq.dtable(query=query_1d)  # Pass 1D vector
+        
+        for cluster_id in nearest_clusters:
+            if cluster_id in self.index['clusters']:
+                cluster_data = self.index['clusters'][cluster_id]
+                codes = cluster_data['codes']
+                ids = cluster_data['ids']
+                dists = dt.adist(codes=codes)
+                candidates.extend(zip(ids, -dists))
+
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return [x[0] for x in candidates[:no_of_matches]]
