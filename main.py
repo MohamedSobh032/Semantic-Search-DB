@@ -7,5 +7,5 @@ db = VecDB(db_size = 10**6)
 # Retrieve similar images for a given query
 query_vector = np.random.rand(1,70) # Query vector of dimension 70
 #similar_images = db.retrieve(query_vector, top_k=5)
-similar_images = db.get_all_rows()
+similar_images = db.get_one_row(4)
 print(similar_images)

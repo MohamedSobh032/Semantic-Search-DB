@@ -9,7 +9,7 @@ ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
 
 class VecDB:
-    def __init__(self, database_file_path = "saved_db.dat", index_file_path = "index.dat", new_db = True, db_size = None) -> None:
+    def __init__(self, database_file_path = "saved_db.dat", index_file_path = "index.dat", new_db = False, db_size = None) -> None:
         self.db_path = database_file_path
         self.index_path = index_file_path
         self.ivf = ivf()
@@ -25,6 +25,7 @@ class VecDB:
         rng = np.random.default_rng(DB_SEED_NUMBER)
         vectors = rng.random((size, DIMENSION), dtype=np.float32)
         self._write_vectors_to_file(vectors)
+        print("Database generated")
         self._build_index('.', vectors)
 
     def _write_vectors_to_file(self, vectors: np.ndarray) -> None:
@@ -61,12 +62,10 @@ class VecDB:
         return np.array(vectors)
     
     def retrieve(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
-        centroids = self.ivf.load_file('./centroids.pkl')
-        app_data_size = math.ceil(math.pow(len(centroids),2))
-        no_of_centroids = 16
+        no_of_centroids = 8
         # if app_data_size > 1000000:
         #     no_of_centroids = 30 + app_data_size // 1000000
-        results = self.ivf.find_nearest('.', query, centroids, top_k, no_of_centroids)
+        results = self.ivf.find_nearest('.', query, top_k, no_of_centroids)
         return results
     
     def _cal_score(self, vec1, vec2):
