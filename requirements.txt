@@ -1,2 +1,5 @@
 numpy
 memory-profiler
+gdown
+scipy
+sklearn
