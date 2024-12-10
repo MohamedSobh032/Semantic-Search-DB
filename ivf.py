@@ -10,7 +10,7 @@ DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
 class ivf:
-    def __init__(self, clusters: int = 100,sub_cluster: int = 10, batches: int = 100000) -> None:
+    def __init__(self, clusters: int = 500,sub_cluster: int = 50, batches: int = 100000) -> None:
         '''
         Constructor of IVF
         '''

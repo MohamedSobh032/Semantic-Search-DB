@@ -62,7 +62,7 @@ class VecDB:
         return np.array(vectors)
     
     def retrieve(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
-        no_of_centroids = 8
+        no_of_centroids = 30
         # if app_data_size > 1000000:
         #     no_of_centroids = 30 + app_data_size // 1000000
         results = self.ivf.find_nearest('.', query, top_k, no_of_centroids)
