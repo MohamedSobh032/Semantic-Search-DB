@@ -9,10 +9,14 @@ ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
 
 class VecDB:
-    def __init__(self, database_file_path = "saved_db.dat", index_file_path = "index.dat", new_db = False, db_size = None) -> None:
+    def __init__(self, database_file_path = "saved_db.dat", new_db = False, db_size = None, data_path: str = '.') -> None:
+        
+        # INITIALIZE VARIABLES
         self.db_path = database_file_path
-        self.index_path = index_file_path
         self.ivf = ivf()
+        self.data_path = data_path
+
+        # IF NEW DATABASE NEEDED
         if new_db:
             if db_size is None:
                 raise ValueError("You need to provide the size of the database")
@@ -26,7 +30,7 @@ class VecDB:
         vectors = rng.random((size, DIMENSION), dtype=np.float32)
         self._write_vectors_to_file(vectors)
         print("Database generated")
-        self._build_index('.', vectors)
+        self._build_index(self.data_path, vectors)
 
     def _write_vectors_to_file(self, vectors: np.ndarray) -> None:
         mmap_vectors = np.memmap(self.db_path, dtype=np.float32, mode='w+', shape=vectors.shape)
@@ -65,7 +69,7 @@ class VecDB:
         no_of_centroids = 10
         # if app_data_size > 1000000:
         #     no_of_centroids = 30 + app_data_size // 1000000
-        results = self.ivf.find_nearest('.', query, top_k, no_of_centroids)
+        results = self.ivf.find_nearest(self.data_path, query, top_k, no_of_centroids)
         return results
     
     def _cal_score(self, vec1, vec2):
@@ -76,5 +80,4 @@ class VecDB:
         return cosine_similarity
 
     def _build_index(self, path, data = None):
-        # Placeholder for index building logic
         self.ivf.build_index(path, data)

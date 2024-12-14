@@ -9,59 +9,16 @@ import math
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
+
 class ivf:
-    def __init__(self, clusters: int = 500,sub_cluster: int = 50, batches: int = 100000) -> None:
+    def __init__(self, clusters: int = 500, sub_cluster: int = 50, batches: int = 100000) -> None:
         '''
         Constructor of IVF
         '''
         self.batch_size = batches
         self.cluster_num = clusters
         self.sub_cluster_num = sub_cluster
-        self.kmeans = KMeans(n_clusters=clusters)
-        self.inverted_index = {}
 
-    # READ FILE WITH INDEX
-    def load_batch(self, index: int):
-        '''
-        reads data file with index as binary
-        param index: which data file to read
-        '''
-        file_name = f'data/data_{index}.pkl'
-        with open(file_name, 'rb') as file:
-            return pickle.load(file)
-        return None
-    
-    # READ FILE WITH FILENAME
-    def load_file(self, file_name: str):
-        '''
-        reads data file as binary
-        param file_name: which data file to read
-        '''
-        with open(file_name, 'rb') as file:
-            return pickle.load(file)
-        return None
-
-    # INSERT
-    def append_to_file(self, filename: str, idx: int, data: np.ndarray) -> None:
-        '''
-        inserts new data to a file
-        param filename: filename
-        param data: vector to be inserted
-        '''
-        with open(filename, 'a', newline = '') as file:
-            arr = ','.join(map(str, data))
-            file.write(f'{idx},{arr}\n')
-    
-    # DELETE ALL DATA INSIDE A DIRECTORY
-    def delete_file_data(self, dir_path: str):
-        '''
-        Deletes all data files inside a directory
-        param dir_path: path to the directory to delete
-        '''
-        for file in os.listdir(dir_path):
-            if file.endswith('.pkl'):
-                os.remove(os.path.join(dir_path, file))
-    
     # Cosine Similarity
     def get_similarity(self, v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
         '''
@@ -70,13 +27,7 @@ class ivf:
         v1_norm = np.linalg.norm(v1, axis=1, keepdims=True)
         v2_norm = np.linalg.norm(v2, axis=1, keepdims=True)
         return np.dot(v1, v2.T) / (v1_norm * v2_norm.T)
-    def get_similarity2(self, v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
-        '''
-        Computes the cosine similarity between two vectors or between a vector and a matrix of vectors
-        '''
-        v1_norm = np.linalg.norm(v1, axis=1, keepdims=True)
-        v2_norm = np.linalg.norm(v2, axis=1, keepdims=True)
-        return np.dot(v1, v2) / (v1_norm * v2_norm)
+    
     # build index
     def build_index(self, path: str, data=None) -> None:
         '''
@@ -131,7 +82,7 @@ class ivf:
                 l2_centroids = kmeans_l2.cluster_centers_
                 l2_labels = kmeans_l2.labels_
             else:
-                l2_centroids, l2_labels = kmeans2(cluster_data, max(2, self.cluster_num // 2))
+                l2_centroids, l2_labels = kmeans2(cluster_data, max(2, self.sub_cluster_num))
             
             # Store second level centroids
             level_centroids[1][i] = l2_centroids
@@ -142,16 +93,23 @@ class ivf:
             for j in range(len(l2_centroids)):
                 sub_cluster_indices = cluster_indices[l2_labels == j]
                 hierarchy[i][j] = sub_cluster_indices.tolist()
+
+                # dump the index in the folder
+                with open(os.path.join(path, f'ivf_hierarchy_{i}_{j}.pkl'), 'wb') as f:
+                    pickle.dump(hierarchy[i][j], f)
+
             print(f'Clustering for first level cluster {i} complete')
         
+        with open(os.path.join(path, 'ivf_centroids.pkl'), 'wb') as f:
+            pickle.dump(level_centroids, f)
+
         # Save the complete index structure
-        index_structure = {
-            'hierarchy': hierarchy,
-            'centroids': level_centroids,
-        }
-        
-        with open(os.path.join(path, 'ivf_index.pkl'), 'wb') as f:
-            pickle.dump(index_structure, f)
+        # index_structure = {
+        #     'hierarchy': hierarchy,
+        #     'centroids': level_centroids,
+        # }
+        # with open(os.path.join(path, 'ivf_index.pkl'), 'wb') as f:
+        #     pickle.dump(index_structure, f)
         
         # Cleanup
         del new_data
@@ -172,10 +130,10 @@ class ivf:
         query = preprocessing.normalize(query)
         
         # Load first level centroids
-        with open(os.path.join(path, 'ivf_index.pkl'), 'rb') as f:
-            index_data = pickle.load(f)
-        
-        first_level_centroids = index_data['centroids'][0]
+        with open(os.path.join(path, 'ivf_centroids.pkl'), 'rb') as f:
+            index_centroids = pickle.load(f)
+
+        first_level_centroids = index_centroids[0]
         
         # Get similarities to first level centroids
         sims_l1 = self.get_similarity(query, first_level_centroids)
@@ -192,11 +150,12 @@ class ivf:
             l1_cluster_id_int = int(l1_cluster_id)
             
             # Load second level centroids for the current first level cluster
-            second_level_centroids = index_data['centroids'][1][l1_cluster_id_int]
+            second_level_centroids = index_centroids[1][l1_cluster_id_int]
             
             # Check if the second level centroids contain only one vector
             if len(second_level_centroids) == 1:
-                data_indices = index_data['hierarchy'][l1_cluster_id_int][0]
+                with open(os.path.join(path, f'ivf_hierarchy_{l1_cluster_id_int}_0.pkl'), 'rb') as f:
+                    data_indices = pickle.load(f)
                 for data_index in data_indices:
                     data_vector = self.get_one_row(data_index)
                     sim = self.get_similarity(query, data_vector.reshape(1, -1))
@@ -212,22 +171,20 @@ class ivf:
                 # Collect data indices from nearest second level clusters
                 for l2_cluster_id in nearest_l2_index:
                     l2_cluster_id_int = int(l2_cluster_id)
-                    data_indices = index_data['hierarchy'][l1_cluster_id_int][l2_cluster_id_int]
-                    
+                    with open(os.path.join(path, f'ivf_hierarchy_{l1_cluster_id_int}_{l2_cluster_id_int}.pkl'), 'rb') as f:
+                        data_indices = pickle.load(f)
                     # Retrieve actual data vectors and compute similarities
                     for data_index in data_indices:
                         data_vector = self.get_one_row(data_index)
                         sim = self.get_similarity(query, data_vector.reshape(1, -1))
                         candidates.append((data_index, data_vector, float(sim)))
-        
         # Sort by similarity (descending)
         candidates.sort(key=lambda x: x[2], reverse=True)
-        
         # Return the top k nearest vectors
         return [candidate[0] for candidate in candidates[:no_of_matches]]
-    
+
     def get_one_row(self, row_num: int) -> np.ndarray:
-    # This function is only load one row in memory
+        # This function is only load one row in memory
         try:
             offset = row_num * DIMENSION * ELEMENT_SIZE
             mmap_vector = np.memmap('saved_db.dat', dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)

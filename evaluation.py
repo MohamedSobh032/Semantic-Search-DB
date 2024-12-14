@@ -53,9 +53,7 @@ def eval(results: List[Result]):
     return sum(scores) / len(scores), sum(run_time) / len(run_time)
 
 if __name__ == "__main__":
-    db = VecDB(db_size = 10**6)
-
+    db = VecDB(db_size = 1 * (10**6), new_db = True)
     all_db = db.get_all_rows()
-
     res = run_queries(db, all_db, 5, 10)
     print(eval(res))
