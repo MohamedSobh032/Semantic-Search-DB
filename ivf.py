@@ -11,12 +11,13 @@ ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
 
 class ivf:
-    def __init__(self, clusters: int = 500, sub_cluster: int = 50, batches: int = 100000) -> None:
+    def __init__(self,database_file_path = "saved_db.dat" ,clusters: int = 500, sub_cluster: int = 50, batches: int = 100000) -> None:
         '''
         Constructor of IVF
         '''
         self.batch_size = batches
         self.cluster_num = clusters
+        self.database_file_path = database_file_path
         self.sub_cluster_num = sub_cluster
 
     # Cosine Similarity
@@ -187,7 +188,7 @@ class ivf:
         # This function is only load one row in memory
         try:
             offset = row_num * DIMENSION * ELEMENT_SIZE
-            mmap_vector = np.memmap('saved_db.dat', dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
+            mmap_vector = np.memmap(self.database_file_path, dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
             return np.array(mmap_vector[0])
         except Exception as e:
             return f"An error occurred: {e}"
