@@ -9,10 +9,10 @@ ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
 INDEX_PARAMS = {
     "no_of_centroids":{
-            1: 15,
-            10: 12,
-            15: 11,
-            20: 10
+        1: 15,
+        10: 9,
+        15: 6,
+        20: 1
     },
 }
 
