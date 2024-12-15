@@ -1,11 +1,10 @@
-import numpy as np      # Maths operations
+import numpy as np
 import pickle           # Serializations of data
 from sklearn import preprocessing
-from sklearn.cluster import KMeans, MiniBatchKMeans
-from scipy.cluster.vq import whiten, kmeans, vq, kmeans2
+from sklearn.cluster import MiniBatchKMeans
+from scipy.cluster.vq import kmeans2
 import os
 import gc
-import math
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
@@ -103,14 +102,6 @@ class ivf:
         
         with open(os.path.join(path, 'ivf_centroids.pkl'), 'wb') as f:
             pickle.dump(level_centroids, f)
-
-        # Save the complete index structure
-        # index_structure = {
-        #     'hierarchy': hierarchy,
-        #     'centroids': level_centroids,
-        # }
-        # with open(os.path.join(path, 'ivf_index.pkl'), 'wb') as f:
-        #     pickle.dump(index_structure, f)
         
         # Cleanup
         del new_data
@@ -192,9 +183,3 @@ class ivf:
             return np.array(mmap_vector[0])
         except Exception as e:
             return f"An error occurred: {e}"
-
-#TO DO: 
-# 1. Add Product Quantization
-# 2. Make Index one file
-# 3. Find clusters sweet spot
-# 4. Run on Kaggle

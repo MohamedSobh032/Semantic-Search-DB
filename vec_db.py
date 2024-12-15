@@ -2,7 +2,6 @@ from typing import Dict, List, Annotated
 from ivf import ivf
 import numpy as np
 import os
-import math
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -58,7 +57,7 @@ class VecDB:
         mmap_vectors[num_old_records:] = rows
         mmap_vectors.flush()
         #TODO: might change to call insert in the index, if you need
-        self._build_index('.', rows)
+        self._build_index(self.index_file_path, rows)
 
     def get_one_row(self, row_num: int) -> np.ndarray:
         # This function is only load one row in memory
@@ -77,8 +76,6 @@ class VecDB:
     
     def retrieve(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
         no_of_centroids = INDEX_PARAMS["no_of_centroids"][self.size]
-        # if app_data_size > 1000000:
-        #     no_of_centroids = 30 + app_data_size // 1000000
         results = self.ivf.find_nearest(self.index_file_path, query, top_k, no_of_centroids)
         return results
     
