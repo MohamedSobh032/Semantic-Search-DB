@@ -8,9 +8,9 @@ ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
 INDEX_PARAMS = {
     "no_of_centroids":{
-        1: 16,
-        10: 10,
-        15: 8,
+        1: 17,
+        10: 11,
+        15: 10,
         20: 4
     },
 }
@@ -30,6 +30,8 @@ class VecDB:
             self.size = 20
         else:
             self.size = 1
+        
+        print(f"size : {self.size}")
 
         self.ivf = ivf(database_file_path)
         self.index_file_path = index_file_path
