@@ -10,7 +10,7 @@ INDEX_PARAMS = {
     "no_of_centroids":{
         1: 17,
         10: 10,
-        15: 10,
+        15: 9,
         20: 3
     },
 }
