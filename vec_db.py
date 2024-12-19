@@ -9,9 +9,9 @@ DIMENSION = 70
 INDEX_PARAMS = {
     "no_of_centroids":{
         1: 17,
-        10: 11,
+        10: 10,
         15: 10,
-        20: 4
+        20: 3
     },
 }
 
@@ -30,8 +30,6 @@ class VecDB:
             self.size = 20
         else:
             self.size = 1
-        
-        print(f"size : {self.size}")
 
         self.ivf = ivf(database_file_path)
         self.index_file_path = index_file_path
